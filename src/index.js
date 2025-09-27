@@ -1,5 +1,5 @@
 import { Router } from 'itty-router';
-import wallpaperRouter from './routes/wallpaper';
+import imgRouter from './routes/img';
 
 /**
  * ===================================================================================
@@ -20,7 +20,7 @@ import wallpaperRouter from './routes/wallpaper';
 const router = Router();
 
 // --- 注册模块化路由 ---
-router.all('/wallpaper/*', wallpaperRouter.handle);
+router.all('/img/*', imgRouter.handle);
 
 
 // --- 预留的 API 路由 (未来也可以拆分为模块) ---
