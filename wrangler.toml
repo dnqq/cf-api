@@ -15,7 +15,7 @@ bucket_name = "cf-api-rand-img" # 替换成你真实的 R2 存储桶名称
 # 绑定到您的 KV 命名空间
 [[kv_namespaces]]
 binding = "WALLPAPER_KV" # Worker 代码里用来调用的名字 (env.WALLPAPER_KV)
-id = "${KV_NAMESPACE_ID}" # 从环境变量中读取 KV Namespace ID
+id = "cf-api-rand-img" 
 
 # 用于运行计划任务的 Cron 触发器
 [triggers]
