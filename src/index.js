@@ -1,86 +1,56 @@
+import { Router } from 'itty-router';
+import wallpaperRouter from './routes/wallpaper';
+
 /**
  * ===================================================================================
- *  生产环境就绪的随机壁纸 API Worker
+ *  可扩展的 API Worker (模块化结构)
  *
  *  架构说明:
- *  - 用户请求 (fetch 处理器):
- *    1. 从 Cloudflare KV 读取预先缓存好的文件列表 (速度极快)。
- *    2. 从列表中随机选择一个文件的 Key。
- *    3. 直接从 R2 获取该图片对象。
- *    4. 直接向用户返回图片数据 (不使用重定向，性能更佳)。
+ *  - 使用 itty-router 进行路由管理。
+ *  - 核心路由在 src/index.js 中注册。
+ *  - 复杂的 API 模块被拆分到 src/routes/ 目录下的独立文件中。
+ *    - 例如: src/routes/wallpaper.js
  *
- *  - 后台任务 (scheduled 处理器):
- *    1. 根据设定的时间表自动运行 (例如：每小时一次)。
- *    2. 列出 R2 存储桶中 PC 和 Mobile 文件夹下的所有对象。
- *    3. 将这些文件列表保存到 KV 中，以供 fetch 处理器使用。
- *
- *  安全策略:
- *  - 速率限制和机器人防护功能不在此代码中处理。
- *  - 为了达到最佳性能和安全性，这些功能应该在 Cloudflare 的仪表盘中
- *    通过配置 WAF 防火墙和速率限制规则来实现。
+ *  后台任务 (scheduled 处理器):
+ *  - 保持在主文件中，用于执行全局的定时任务。
  * ===================================================================================
  */
+
+// 初始化主路由器
+const router = Router();
+
+// --- 注册模块化路由 ---
+router.all('/wallpaper/*', wallpaperRouter.handle);
+
+
+// --- 预留的 API 路由 (未来也可以拆分为模块) ---
+
+// 音乐 API
+router.get('/music/now-playing', () => new Response('音乐 API - 正在播放 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+
+// 博客与分析 API
+router.get('/blog/latest-post', () => new Response('博客 API - 最新文章 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+router.get('/analytics/page-views', () => new Response('分析 API - 页面浏览量 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+
+// 笔记 API
+router.post('/notes/create', () => new Response('笔记 API - 创建笔记 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+
+
+// --- 404 处理 ---
+// 如果请求未被任何上述路由匹配，则返回 404
+router.all('*', () => new Response('404, Not Found.', { status: 404 }));
+
+
 export default {
   /**
-   * 处理用户获取随机图片的 API 请求。
-   * @param {Request} request 传入的请求对象。
-   * @param {object} env 环境变量，包含了到 R2 和 KV 的绑定。
-   * @returns {Response} 返回图片响应或错误响应。
+   * 处理所有传入的 HTTP 请求。
    */
-  async fetch(request, env) {
-    try {
-      // 1. 判断用户是否正在使用移动设备。
-      const userAgent = (request.headers.get("User-Agent") || "").toLowerCase();
-      const isMobile = /iphone|ipod|android|blackberry|iemobile|opera mini/.test(userAgent);
-      
-      // 2. 根据设备类型，决定使用哪个图片列表。
-      const kvKey = isMobile ? "MOBILE_IMAGE_KEYS" : "PC_IMAGE_KEYS";
-
-      // 3. 从 KV 中获取缓存的文件列表 (此操作速度极快)。
-      const imageKeys = await env.WALLPAPER_KV.get(kvKey, "json");
-
-      // 4. 处理缓存尚未填充或为空的情况。
-      if (!imageKeys || imageKeys.length === 0) {
-        console.error(`KV 缓存未命中或为空，键名: ${kvKey}。如果问题持续，请尝试手动触发一次定时任务。`);
-        return new Response("图片服务正在预热中，请稍后重试。", {
-          status: 503, // 503 Service Unavailable 服务不可用
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-      }
-
-      // 5. 从列表中随机挑选一个图片的 Key。
-      const randomKey = imageKeys[Math.floor(Math.random() * imageKeys.length)];
-
-      // 6. 从 R2 存储桶中获取实际的图片对象。
-      const object = await env.WALLPAPER_BUCKET.get(randomKey);
-
-      if (object === null) {
-        // 这种情况很罕见，可能发生在 KV 与 R2 数据短暂不同步时。
-        console.error(`在 R2 中未找到 Key 为 "${randomKey}" 的对象，尽管它存在于 KV 缓存中。`);
-        return new Response("无法获取到所选的图片。", { status: 404 });
-      }
-
-      // 7. 准备响应头，并直接返回图片数据。
-      const headers = new Headers();
-      object.writeHttpMetadata(headers);
-      headers.set('etag', object.httpEtag);
-      // 在用户的浏览器上缓存 5 分钟 (300秒)。
-      headers.set('cache-control', 'public, max-age=300'); 
-
-      return new Response(object.body, {
-        headers,
-      });
-
-    } catch (error) {
-      console.error("fetch 处理器发生意外错误:", error);
-      return new Response("服务器内部错误。", { status: 500 });
-    }
+  async fetch(request, env, ctx) {
+    return router.handle(request, env, ctx);
   },
 
   /**
-   * 处理由 Cron 触发器调度的定时任务，用于更新 KV 缓存。
-   * @param {ScheduledEvent} event 定时事件对象。
-   * @param {object} env 环境变量，包含了到 R2 和 KV 的绑定。
+   * 处理定时任务，用于更新壁纸列表缓存。
    */
   async scheduled(event, env) {
     console.log("定时任务触发：正在刷新 R2 文件列表并存入 KV...");
