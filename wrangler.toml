@@ -5,7 +5,7 @@ name = "cf-api"
 main = "src/index.js"
 
 # 指定 Workers 运行时的确切版本
-#compatibility_date = "2025-09-28"
+compatibility_date = "2025-09-27"
 
 # 绑定到您的 R2 存储桶
 [[r2_buckets]]
