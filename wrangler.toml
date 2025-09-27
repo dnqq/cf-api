@@ -1,0 +1,24 @@
+# Worker 的顶层名称
+name = "cf-rand-img"
+
+# Worker 的主入口点
+main = "src/index.js"
+
+# 指定 Workers 运行时的确切版本
+compatibility_date = "2025-09-28"
+
+# 绑定到您的 R2 存储桶
+[[r2_buckets]]
+binding = "WALLPAPER_BUCKET" # Worker 代码里用来调用的名字 (env.WALLPAPER_BUCKET)
+bucket_name = "cf-rand-img" # 替换成你真实的 R2 存储桶名称
+
+# 绑定到您的 KV 命名空间
+[[kv_namespaces]]
+binding = "WALLPAPER_KV" # Worker 代码里用来调用的名字 (env.WALLPAPER_KV)
+id = "ycf-rand-img" # 替换成你真实的 KV Namespace ID
+
+# 用于运行计划任务的 Cron 触发器
+[triggers]
+# 这会在每小时的第 0 分钟运行 `scheduled` 函数。
+# 例如，在 1:00、2:00、3:00 等。
+crons = ["0 * * * *"]
