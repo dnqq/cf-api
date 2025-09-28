@@ -1,5 +1,5 @@
 # Worker 的顶层名称
-name = "cf-api"
+name = "cf-api-rand-img"
 
 # Worker 的主入口点
 main = "src/index.js"
