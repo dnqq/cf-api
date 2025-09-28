@@ -1,52 +1,54 @@
-import { Router } from 'itty-router';
-import wallpaperRouter from './routes/wallpaper';
-
 /**
  * ===================================================================================
- *  可扩展的 API Worker (模块化结构)
+ *  API Worker for Random Wallpapers
  *
- *  架构说明:
- *  - 使用 itty-router 进行路由管理。
- *  - 核心路由在 src/index.js 中注册。
- *  - 复杂的 API 模块被拆分到 src/routes/ 目录下的独立文件中。
- *    - 例如: src/routes/wallpaper.js
- *
- *  后台任务 (scheduled 处理器):
- *  - 保持在主文件中，用于执行全局的定时任务。
+ *  说明:
+ *  - 此 Worker 直接响应任何请求，返回一张随机壁纸。
+ *  - 它会根据 User-Agent 判断设备类型 (PC 或 Mobile)，并从相应的列表中选择图片。
+ *  - 图片列表通过一个定时任务 (scheduled handler) 每天更新并缓存在 KV 中。
  * ===================================================================================
  */
 
-// 初始化主路由器
-const router = Router();
-
-// --- 注册模块化路由 ---
-router.all('/wallpaper/*', wallpaperRouter.handle);
-
-
-// --- 预留的 API 路由 (未来也可以拆分为模块) ---
-
-// 音乐 API
-router.get('/music/now-playing', () => new Response('音乐 API - 正在播放 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
-
-// 博客与分析 API
-router.get('/blog/latest-post', () => new Response('博客 API - 最新文章 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
-router.get('/analytics/page-views', () => new Response('分析 API - 页面浏览量 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
-
-// 笔记 API
-router.post('/notes/create', () => new Response('笔记 API - 创建笔记 (待实现)', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
-
-
-// --- 404 处理 ---
-// 如果请求未被任何上述路由匹配，则返回 404
-router.all('*', () => new Response('404, Not Found.', { status: 404 }));
-
-
 export default {
   /**
-   * 处理所有传入的 HTTP 请求。
+   * 处理所有传入的 HTTP 请求，返回一张随机壁纸。
    */
   async fetch(request, env, ctx) {
-    return router.handle(request, env, ctx);
+    try {
+      const userAgent = (request.headers.get("User-Agent") || "").toLowerCase();
+      const isMobile = /iphone|ipod|android|blackberry|iemobile|opera mini/.test(userAgent);
+      const kvKey = isMobile ? "MOBILE_IMAGE_KEYS" : "PC_IMAGE_KEYS";
+
+      const imageKeys = await env.WALLPAPER_KV.get(kvKey, "json");
+
+      if (!imageKeys || imageKeys.length === 0) {
+        console.error(`KV 缓存未命中或为空，键名: ${kvKey}。`);
+        return new Response("图片服务正在预热中，请稍后重试。", {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      }
+
+      const randomKey = imageKeys[Math.floor(Math.random() * imageKeys.length)];
+      const object = await env.WALLPAPER_BUCKET.get(randomKey);
+
+      if (object === null) {
+        console.error(`在 R2 中未找到 Key 为 "${randomKey}" 的对象。`);
+        return new Response("无法获取到所选的图片。", { status: 404 });
+      }
+
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set('etag', object.httpEtag);
+      headers.set('cache-control', 'public, max-age=300'); // 缓存5分钟
+
+      return new Response(object.body, {
+        headers,
+      });
+    } catch (error) {
+      console.error("处理请求时发生意外错误:", error);
+      return new Response("服务器内部错误。", { status: 500 });
+    }
   },
 
   /**
